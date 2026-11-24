@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cosmic Clocks</title>
+<style>
+html, body { margin: 0; height: 100%; background: #fff; color: #000; }
+body { font-family: "Times New Roman", Times, serif; font-size: 16px; padding: 8px; box-sizing: border-box; }
+p { margin: 0; }
+button { font: inherit; color: #000; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+button[aria-pressed="true"] { text-decoration: none; font-weight: bold; }
+pre { margin: 8px 0; font-family: monospace; font-size: 8px; line-height: 9.6px; white-space: pre; overflow: hidden; }
+</style>
+</head>
+<body>
+<p id="top"><span id="tabs"></span>minutes | <button id="pause" type="button">pause</button> <button id="reset" type="button">reset</button> | <span id="speeds"></span></p>
+<pre id="art" aria-hidden="true"></pre>
+<p id="bot"><span id="info"></span></p>
+<script>
+(function () {
+  const TAU = Math.PI * 2, RAMP = " .:-=+*#%@";
+  let COLS = 64, ROWS = 28, ASP = 2, U = 28;
+  const $ = id => document.getElementById(id);
+  function hash(i) { const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
+  function blank() { return Array.from({ length: ROWS }, () => Array(COLS).fill(" ")); }
+  function out(g) { return g.map(r => r.join("")).join("\n"); }
+  function put(g, r, c, s) { for (let i = 0; i < s.length; i++) if (r >= 0 && r < ROWS && c + i >= 0 && c + i < COLS) g[r][c + i] = s[i]; }
+  function shade(I) { return RAMP[Math.max(1, Math.min(9, Math.round(I * 9)))]; }
+  function fmt(s) { s = Math.max(0, Math.floor(s)); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); }
+  function stars(g, seed, rows) {
+    for (let r = 0; r < (rows || ROWS); r++) for (let c = 0; c < COLS; c++) {
+      const v = hash(r * 1031 + c * 7 + seed);
+      if (v < 0.006) g[r][c] = "."; else if (v < 0.0072) g[r][c] = "*";
+    }
+  }
+  // normalized coords: shorter half-dimension = 1
+  function X(c, cx) { return (c + 0.5 - cx) / U; }
+  function Y(r, cy) { return (r + 0.5 - cy) * ASP / U; }
+
+  function renderSun(p) {
+    const g = blank(); stars(g, 11);
+    const disp = Math.sin(TAU * p), R = 0.82 * (1 + 0.04 * disp);
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const x = X(c, COLS / 2), y = Y(r, ROWS / 2), d = Math.hypot(x, y);
+      if (d < R) {
+        const mu = Math.sqrt(1 - (d / R) * (d / R));
+        const pat = Math.sin(15 * x + 7 * y + 1) * Math.cos(8 * y - 12 * x) + 0.5 * Math.sin(31 * x - 23 * y) * Math.cos(27 * y + 19 * x);
+        g[r][c] = shade(0.18 + 0.64 * mu + 0.16 * pat * disp);
+      } else if (d < R + 0.05 && hash(r * 77 + c) < 0.3) g[r][c] = ".";
+    }
+    return out(g);
+  }
+
+  let seedKey = "", seeds = [];
+  function makeSeeds() {
+    const key = COLS + "x" + ROWS; if (key === seedKey) return; seedKey = key; seeds = [];
+    const W = COLS / U, H = ROWS * ASP / U, sp = 0.22;
+    const nx = Math.ceil(W / sp), ny = Math.ceil(H / sp);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * 997 + i;
+      seeds.push({ x: (i + 0.5) * W / nx - W / 2 + (hash(k * 3 + 1) - 0.5) * 0.3, y: (j + 0.5) * H / ny - H / 2 + (hash(k * 5 + 2) - 0.5) * 0.3, off: hash(k * 9 + 4) });
+    }
+    let b = 0, bd = 1e9; seeds.forEach((s, i) => { const d = Math.hypot(s.x, s.y); if (d < bd) { bd = d; b = i; } });
+    seeds[b].off = 0; seeds[b].feat = true;
+  }
+  function renderGran(p) {
+    makeSeeds();
+    const g = blank();
+    const st = seeds.map(s => { const l = (p + s.off) % 1, sz = 0.11 * (0.35 + 0.85 * Math.sin(Math.PI * l));
+      return { s, sz, w: sz * sz, b: Math.pow(Math.sin(Math.PI * l), 0.6) * (s.feat ? 1 : 0.72) }; });
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const x = X(c, COLS / 2), y = Y(r, ROWS / 2);
+      let p1 = 1e9, p2 = 1e9, i1 = 0, d1 = 0;
+      for (let i = 0; i < st.length; i++) {
+        const dx = x - st[i].s.x, dy = y - st[i].s.y;
+        if (dx > 0.6 || dx < -0.6 || dy > 0.6 || dy < -0.6) continue;
+        const dd = dx * dx + dy * dy, pw = dd - st[i].w;
+        if (pw < p1) { p2 = p1; p1 = pw; i1 = i; d1 = Math.sqrt(dd); } else if (pw < p2) p2 = pw;
+      }
+      const lane = (p2 - p1) / (2 * 0.22);
+      if (lane < 0.018) continue;
+      if (lane < 0.036) { g[r][c] = "."; continue; }
+      const k = st[i1], radial = 1 - Math.min(1, d1 / (k.sz + 0.13));
+      g[r][c] = shade(0.12 + k.b * (0.35 + 0.55 * radial));
+    }
+    return out(g);
+  }
+
+  function renderPulsar(p) {
+    const g = blank();
+    const chartH = Math.max(6, Math.round(ROWS * 0.22)), sceneRows = ROWS - chartH - 1;
+    stars(g, 47, sceneRows);
+    const cx = COLS / 2, cy = sceneRows / 2, th = TAU * p;
+    const uS = Math.min(COLS / 2, sceneRows * ASP / 2);
+    for (let r = 0; r < sceneRows; r++) for (let c = 0; c < COLS; c++) {
+      const x = (c + 0.5 - cx) / uS, y = -(r + 0.5 - cy) * ASP / uS, d = Math.hypot(x, y);
+      if (d < 0.035) { g[r][c] = "@"; continue; }
+      let diff = Math.atan2(y, x) - th; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      const along = d * Math.cos(diff), perp = Math.abs(d * Math.sin(diff));
+      if (along > 0.05) {
+        const w = 0.012 + along * 0.05;
+        if (perp < w) g[r][c] = "#"; else if (perp < w * 2.2) g[r][c] = "+"; else if (perp < w * 3.6) g[r][c] = ":";
+      }
+    }
+    const er = Math.floor(cy);
+    put(g, er, COLS - 5, "(E)"); put(g, er + 1, COLS - 7, "earth");
+    if (Math.min(p, 1 - p) < 0.03) for (let k = -1; k <= 1; k++) put(g, er + k, COLS - 10, ")))");
+    const sep = sceneRows, base = ROWS - 2, hmax = chartH - 2;
+    const cur = Math.round(p * (COLS - 1));
+    for (let c = 0; c < COLS; c++) g[sep][c] = "-";
+    g[sep][cur] = "v";
+    for (let c = 0; c <= cur; c++) {
+      const pc = c / (COLS - 1);
+      const sig = Math.exp(-Math.pow(Math.min(pc, 1 - pc) / 0.012, 2)) + 0.1 * hash(c * 13 + 5);
+      const h = Math.min(hmax, Math.round(sig * hmax));
+      if (h === 0) g[base][c] = "_";
+      for (let k = 0; k < h; k++) g[base - k][c] = k === h - 1 ? "^" : "|";
+    }
+    put(g, ROWS - 1, 0, "0 min"); put(g, ROWS - 1, COLS - 8, "18.2 min");
+    return out(g);
+  }
+
+  function renderBH(p) {
+    const g = blank(); stars(g, 93);
+    const cx = COLS / 2, cy = ROWS / 2, th = TAU * p;
+    const SH = 0.32, RING = 0.42, A = 1.35, B = 0.4;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const x = X(c, cx), y = Y(r, cy), d = Math.hypot(x, y);
+      const e = (x / A) * (x / A) + (y / B) * (y / B), disk = e < 1 && e > 0.2;
+      const dch = e < 0.5 ? ":" : (e < 0.8 ? "-" : ".");
+      if (disk && y > 0) g[r][c] = dch;
+      else if (d < SH) g[r][c] = " ";
+      else if (d < RING) g[r][c] = y < 0 ? "@" : "%";
+      else if (disk) g[r][c] = dch;
+    }
+    const hidden = (sx, sy) => sy < 0 && Math.hypot(sx, sy) < RING;
+    function blob(sx, sy, r1, r2, c1, c2) {
+      for (let r = 0; r < ROWS; r++) { const y = Y(r, cy); if (Math.abs(y - sy) > r2) continue;
+        for (let c = 0; c < COLS; c++) { const dd = Math.hypot(X(c, cx) - sx, y - sy);
+          if (dd < r1) g[r][c] = c1; else if (dd < r2 && c2) g[r][c] = c2; } }
+    }
+    for (let k = 10; k >= 1; k--) {
+      const t = th - k * 0.08, sx = 0.85 * Math.cos(t), sy = 0.3 * Math.sin(t);
+      if (!hidden(sx, sy)) blob(sx, sy, 0.05 * (1 - k / 12), 0, k < 5 ? "o" : ".");
+    }
+    const sx = 0.85 * Math.cos(th), sy = 0.3 * Math.sin(th), appr = Math.cos(th) > 0;
+    if (!hidden(sx, sy)) blob(sx, sy, 0.07, 0.14, appr ? "@" : "*", appr ? "#" : "+");
+    return out(g);
+  }
+
+  const modes = [
+    { tab: "5", name: "sun, surface oscillation (~5 min)", period: 300, render: renderSun },
+    { tab: "10", name: "sun, granule lifetime (~10 min)", period: 600, render: renderGran },
+    { tab: "20", name: "GLEAM-X J1627, radio pulse (18.2 min)", period: 1091.17, render: renderPulsar },
+    { tab: "40", name: "Sgr A*, hot spot orbit (~45 min)", period: 2700, render: renderBH }
+  ].map(m => Object.assign(m, { elapsed: 0, count: 0 }));
+
+  let cur = 0, speed = 1, paused = false;
+  function link(text, fn, parent) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = text;
+    b.addEventListener("click", fn); parent.appendChild(b); parent.appendChild(document.createTextNode(" ")); return b;
+  }
+  const tabEls = modes.map((m, i) => link(m.tab, () => select(i), $("tabs")));
+  const speedEls = [1, 10, 60].map(v => [v, link(v + "x", () => { speed = v; mark(); }, $("speeds"))]);
+  function mark() {
+    tabEls.forEach((t, k) => t.setAttribute("aria-pressed", k === cur ? "true" : "false"));
+    speedEls.forEach(([v, b]) => b.setAttribute("aria-pressed", v === speed ? "true" : "false"));
+  }
+  function select(i) { cur = i; mark(); draw(); }
+  $("pause").addEventListener("click", () => { paused = !paused; $("pause").textContent = paused ? "resume" : "pause"; });
+  $("reset").addEventListener("click", () => { modes[cur].elapsed = 0; modes[cur].count = 0; draw(); });
+
+  function fit() {
+    const art = $("art");
+    const probe = document.createElement("span");
+    probe.textContent = "x".repeat(100); art.textContent = ""; art.appendChild(probe);
+    const rect = probe.getBoundingClientRect();
+    const cw = rect.width / 100, lh = parseFloat(getComputedStyle(art).lineHeight);
+    probe.remove();
+    const w = document.documentElement.clientWidth - 16;
+    const h = window.innerHeight - $("top").offsetHeight - $("bot").offsetHeight - 32;
+    COLS = Math.max(40, Math.floor(w / cw)); ROWS = Math.max(20, Math.floor(h / lh));
+    ASP = lh / cw; U = Math.min(COLS / 2, ROWS * ASP / 2);
+    draw();
+  }
+  window.addEventListener("resize", fit);
+
+  function draw() {
+    const m = modes[cur], p = m.elapsed / m.period;
+    $("art").textContent = m.render(p, m);
+    $("info").textContent = m.name + ". cycles: " + m.count + ". " + fmt(m.elapsed) + "/" + fmt(m.period) + (paused ? ". paused" : "");
+  }
+
+  let last = performance.now(), lastDraw = 0;
+  function frame(now) {
+    const dt = Math.max(0, (now - last) / 1000); last = now;
+    if (!paused) modes.forEach(m => { m.elapsed += dt * speed;
+      if (m.elapsed >= m.period) { m.count += Math.floor(m.elapsed / m.period); m.elapsed %= m.period; } });
+    if (now - lastDraw > 100) { lastDraw = now; draw(); }
+    requestAnimationFrame(frame);
+  }
+  mark(); fit();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
